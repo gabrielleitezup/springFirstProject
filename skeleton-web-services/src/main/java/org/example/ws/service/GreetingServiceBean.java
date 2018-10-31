@@ -1,87 +1,91 @@
 package org.example.ws.service;
 
 import org.example.ws.modal.Greeting;
+import org.example.ws.repository.GreetingRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.CachePut;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
 
 @Service
+@Transactional(
+        propagation = Propagation.SUPPORTS,
+        readOnly = true)
 public class GreetingServiceBean implements GreetingService {
 
-    private static Long nextId;
-    private static Map<Long, Greeting> greetingMap;
+    @Autowired
+    private GreetingRepository greetingRepository;
 
-    private static Greeting save(Greeting greeting) {
-        if (greetingMap == null) {
-            greetingMap = new HashMap<Long, Greeting>();
-            nextId = 1L;
-        }
-        // If Update...
-        if (greeting.getId() != null) {
-            Greeting oldGreeting = greetingMap.get(greeting.getId());
-            if (oldGreeting == null) {
-                return null;
-            }
-            greetingMap.remove(greeting.getId());
-            greetingMap.put(greeting.getId(), greeting);
-            return greeting;
-        }
-        // If Create...
-        greeting.setId(nextId);
-        nextId += 1;
-        greetingMap.put(greeting.getId(), greeting);
-        return greeting;
-
-    }
-
-    private static boolean remove(Long id) {
-        Greeting deletedGreeting = greetingMap.remove(id);
-
-        if (deletedGreeting == null) {
-            return false;
-        }
-
-        return true;
-    }
-
-    static {
-        Greeting g1 = new Greeting();
-        g1.setText("Hello World");
-        save(g1);
-
-        Greeting g2 = new Greeting();
-        g2.setText("Olá Mundo");
-        save(g2);
-    }
 
     @Override
     public Collection<Greeting> findAll() {
-        Collection<Greeting> greetings = greetingMap.values();
+        Collection<Greeting> greetings = greetingRepository.findAll();
         return greetings;
     }
 
     @Override
+    @Cacheable(value = "greetings", key = "#id")
     public Greeting findOne(Long id) {
-        Greeting greeting = greetingMap.get(id);
+        Greeting greeting = greetingRepository.findOne(id);
         return greeting;
     }
 
     @Override
+    @Transactional(
+            propagation = Propagation.REQUIRED,
+            readOnly = false)
+    @CachePut(value = "greetings", key = "#result.id")
     public Greeting create(Greeting greeting) {
-        Greeting savedGreeting = save(greeting);
+        if (greeting.getId() != null) {
+            return null;
+        }
+
+        Greeting savedGreeting = greetingRepository.save(greeting);
+        if (savedGreeting.getId() == 4L) {
+            throw new RuntimeException("Roll me back!");
+        }
         return savedGreeting;
     }
 
     @Override
+    @Transactional(
+            propagation = Propagation.REQUIRED,
+            readOnly = false)
+    @CachePut(
+            value = "greetings",
+            key = "#greeting.id")
     public Greeting update(Greeting greeting) {
-        Greeting updatedGreeting = save(greeting);
+        Greeting greetingPersisted = findOne(greeting.getId());
+
+        if (greetingPersisted == null) {
+            return null;
+        }
+
+        Greeting updatedGreeting = greetingRepository.save(greeting);
         return updatedGreeting;
     }
 
     @Override
+    @Transactional(
+            propagation = Propagation.REQUIRED,
+            readOnly = false)
+    @CacheEvict(
+            value = "greetings",
+            key = "#id")
     public void delete(Long id) {
-        remove(id);
+        greetingRepository.delete(id);
+    }
+
+    @Override
+    @CacheEvict(
+            value = "greetings",
+            allEntries = true)
+    public void evictCache() {
+
     }
 }
